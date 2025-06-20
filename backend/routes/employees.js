@@ -1,20 +1,20 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
-const { requireRole } = require('../middleware/auth');
+const { requireLogin, requireRole } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
 // Get all employees
-router.get('/', async (req, res) => {
+router.get('/', requireLogin, async (req, res) => {
   try {
     const { division, status, search } = req.query;
     
     let query = `
       SELECT e.*, p.full_name, p.email, p.phone, p.avatar_url, d.name as division_name
       FROM employees e
-      LEFT JOIN profiles p ON e.profile_id = p.user_id
+      LEFT JOIN profiles p ON e.profile_id = p.id
       LEFT JOIN divisions d ON e.division_id = d.id
       WHERE 1=1
     `;
@@ -43,20 +43,27 @@ router.get('/', async (req, res) => {
     query += ' ORDER BY e.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json(result.rows);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
   } catch (error) {
     console.error('Error fetching employees:', error);
-    res.status(500).json({ error: 'Failed to fetch employees' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch employees' 
+    });
   }
 });
 
 // Get employee by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireLogin, async (req, res) => {
   try {
     const query = `
       SELECT e.*, p.full_name, p.email, p.phone, p.avatar_url, d.name as division_name
       FROM employees e
-      LEFT JOIN profiles p ON e.profile_id = p.user_id
+      LEFT JOIN profiles p ON e.profile_id = p.id
       LEFT JOIN divisions d ON e.division_id = d.id
       WHERE e.id = $1
     `;
@@ -64,37 +71,55 @@ router.get('/:id', async (req, res) => {
     const result = await db.query(query, [req.params.id]);
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Employee not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Employee not found' 
+      });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error fetching employee:', error);
-    res.status(500).json({ error: 'Failed to fetch employee' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch employee' 
+    });
   }
 });
 
 // Get current user's employee record
-router.get('/profile/me', async (req, res) => {
+router.get('/profile/me', requireLogin, async (req, res) => {
   try {
     const query = `
       SELECT e.*, p.full_name, p.email, p.phone, p.avatar_url, d.name as division_name
       FROM employees e
-      LEFT JOIN profiles p ON e.profile_id = p.user_id
+      LEFT JOIN profiles p ON e.profile_id = p.id
       LEFT JOIN divisions d ON e.division_id = d.id
       WHERE e.profile_id = $1
     `;
     
-    const result = await db.query(query, [req.user.id]);
+    const result = await db.query(query, [req.session.user.id]);
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Employee record not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Employee record not found' 
+      });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error fetching employee profile:', error);
-    res.status(500).json({ error: 'Failed to fetch employee profile' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch employee profile' 
+    });
   }
 });
 
@@ -108,7 +133,11 @@ router.post('/', requireRole(['admin']), [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const {
@@ -138,10 +167,17 @@ router.post('/', requireRole(['admin']), [
       salaryBase, address, emergencyContact, emergencyPhone
     ]);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      success: true,
+      message: 'Employee created successfully',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error creating employee:', error);
-    res.status(500).json({ error: 'Failed to create employee' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create employee' 
+    });
   }
 });
 
@@ -178,13 +214,23 @@ router.put('/:id', requireRole(['admin', 'manager']), async (req, res) => {
     ]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Employee not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Employee not found' 
+      });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      message: 'Employee updated successfully',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error updating employee:', error);
-    res.status(500).json({ error: 'Failed to update employee' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update employee' 
+    });
   }
 });
 

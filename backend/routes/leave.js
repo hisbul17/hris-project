@@ -1,13 +1,13 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
-const { requireRole } = require('../middleware/auth');
+const { requireLogin, requireRole } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
 // Get leave requests
-router.get('/', async (req, res) => {
+router.get('/', requireLogin, async (req, res) => {
   try {
     const { employeeId, status, startDate, endDate } = req.query;
     
@@ -18,9 +18,9 @@ router.get('/', async (req, res) => {
              ap.full_name as approver_name
       FROM leave_requests lr
       LEFT JOIN employees e ON lr.employee_id = e.id
-      LEFT JOIN profiles p ON e.profile_id = p.user_id
+      LEFT JOIN profiles p ON e.profile_id = p.id
       LEFT JOIN employees ae ON lr.approver_id = ae.id
-      LEFT JOIN profiles ap ON ae.profile_id = ap.user_id
+      LEFT JOIN profiles ap ON ae.profile_id = ap.id
       WHERE 1=1
     `;
     
@@ -28,8 +28,8 @@ router.get('/', async (req, res) => {
     let paramCount = 0;
 
     // If employee, only show own requests
-    if (req.user.role === 'employee') {
-      const empResult = await db.query('SELECT id FROM employees WHERE profile_id = $1', [req.user.id]);
+    if (req.session.user.role === 'employee') {
+      const empResult = await db.query('SELECT id FROM employees WHERE profile_id = $1', [req.session.user.id]);
       if (empResult.rows.length > 0) {
         paramCount++;
         query += ` AND lr.employee_id = $${paramCount}`;
@@ -62,15 +62,22 @@ router.get('/', async (req, res) => {
     query += ' ORDER BY lr.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json(result.rows);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
   } catch (error) {
     console.error('Error fetching leave requests:', error);
-    res.status(500).json({ error: 'Failed to fetch leave requests' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch leave requests' 
+    });
   }
 });
 
 // Create leave request
-router.post('/', [
+router.post('/', requireLogin, [
   body('employeeId').isUUID(),
   body('leaveType').isIn(['annual', 'sick', 'emergency', 'maternity', 'paternity', 'other']),
   body('startDate').isISO8601(),
@@ -80,7 +87,11 @@ router.post('/', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const { employeeId, leaveType, startDate, endDate, reason } = req.body;
@@ -105,10 +116,17 @@ router.post('/', [
       daysRequested, reason, 'pending'
     ]);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      success: true,
+      message: 'Leave request created successfully',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error creating leave request:', error);
-    res.status(500).json({ error: 'Failed to create leave request' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create leave request' 
+    });
   }
 });
 
@@ -120,15 +138,22 @@ router.put('/:id/status', requireRole(['admin', 'manager']), [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const { status, rejectionReason } = req.body;
     
     // Get approver employee ID
-    const approverResult = await db.query('SELECT id FROM employees WHERE profile_id = $1', [req.user.id]);
+    const approverResult = await db.query('SELECT id FROM employees WHERE profile_id = $1', [req.session.user.id]);
     if (approverResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Approver employee record not found' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Approver employee record not found' 
+      });
     }
 
     const approverId = approverResult.rows[0].id;
@@ -149,18 +174,28 @@ router.put('/:id/status', requireRole(['admin', 'manager']), [
     ]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Leave request not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Leave request not found' 
+      });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      message: `Leave request ${status} successfully`,
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error updating leave request:', error);
-    res.status(500).json({ error: 'Failed to update leave request' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update leave request' 
+    });
   }
 });
 
 // Get leave balance
-router.get('/balance/:employeeId', async (req, res) => {
+router.get('/balance/:employeeId', requireLogin, async (req, res) => {
   try {
     const { employeeId } = req.params;
     const { year } = req.query;
@@ -208,13 +243,19 @@ router.get('/balance/:employeeId', async (req, res) => {
     });
 
     res.json({
-      entitlements,
-      used,
-      balance
+      success: true,
+      data: {
+        entitlements,
+        used,
+        balance
+      }
     });
   } catch (error) {
     console.error('Error fetching leave balance:', error);
-    res.status(500).json({ error: 'Failed to fetch leave balance' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch leave balance' 
+    });
   }
 });
 

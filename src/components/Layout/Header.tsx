@@ -39,12 +39,12 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           {user && (
             <div className="flex items-center">
               <img
-                src={user.profile?.avatar_url || 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?w=32&h=32&fit=crop&crop=face'}
-                alt={user.profile?.full_name || 'User'}
+                src={user.avatar_url || 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?w=32&h=32&fit=crop&crop=face'}
+                alt={user.full_name || 'User'}
                 className="h-8 w-8 rounded-full"
               />
               <span className="ml-2 text-sm font-medium text-gray-900">
-                {user.profile?.full_name || user.email}
+                {user.full_name || user.email}
               </span>
             </div>
           )}

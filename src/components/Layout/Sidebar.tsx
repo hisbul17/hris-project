@@ -29,7 +29,7 @@ export default function Sidebar({ isCollapsed }: SidebarProps) {
     { icon: Bell, label: 'Announcements', path: '/announcements' },
   ];
 
-  if (user?.profile?.role === 'admin') {
+  if (user?.role === 'admin') {
     menuItems.push({ icon: Settings, label: 'Settings', path: '/settings' });
   }
 
@@ -80,16 +80,16 @@ export default function Sidebar({ isCollapsed }: SidebarProps) {
         {!isCollapsed && user && (
           <div className="flex items-center mb-3">
             <img
-              src={user.profile?.avatar_url || 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?w=40&h=40&fit=crop&crop=face'}
-              alt={user.profile?.full_name || 'User'}
+              src={user.avatar_url || 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?w=40&h=40&fit=crop&crop=face'}
+              alt={user.full_name || 'User'}
               className="h-8 w-8 rounded-full"
             />
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-900">
-                {user.profile?.full_name || user.email}
+                {user.full_name || user.email}
               </p>
               <p className="text-xs text-gray-500 capitalize">
-                {user.profile?.role || 'employee'}
+                {user.role || 'employee'}
               </p>
             </div>
           </div>

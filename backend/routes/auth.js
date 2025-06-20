@@ -1,6 +1,5 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
@@ -16,15 +15,22 @@ router.post('/register', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const { email, password, fullName, phone } = req.body;
 
     // Check if user exists
-    const existingUser = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existingUser = await db.query('SELECT id FROM profiles WHERE email = $1', [email]);
     if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'User already exists' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User already exists' 
+      });
     }
 
     // Hash password
@@ -35,31 +41,29 @@ router.post('/register', [
     await db.query('BEGIN');
 
     try {
-      // Create user
-      await db.query(
-        'INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)',
-        [userId, email, hashedPassword]
-      );
-
       // Create profile
       await db.query(
-        'INSERT INTO profiles (user_id, full_name, phone, role) VALUES ($1, $2, $3, $4)',
-        [userId, fullName, phone || null, 'employee']
+        'INSERT INTO profiles (id, email, password_hash, full_name, phone, role) VALUES ($1, $2, $3, $4, $5, $6)',
+        [userId, email, hashedPassword, fullName, phone || null, 'employee']
       );
 
       await db.query('COMMIT');
 
-      // Generate token
-      const token = jwt.sign(
-        { userId, email },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
-      );
+      // Create session
+      const user = {
+        id: userId,
+        email,
+        full_name: fullName,
+        phone,
+        role: 'employee'
+      };
+
+      req.session.user = user;
 
       res.status(201).json({
+        success: true,
         message: 'User created successfully',
-        token,
-        user: { id: userId, email, fullName, role: 'employee' }
+        user
       });
     } catch (error) {
       await db.query('ROLLBACK');
@@ -67,7 +71,10 @@ router.post('/register', [
     }
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Registration failed' 
+    });
   }
 });
 
@@ -79,23 +86,29 @@ router.post('/login', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const { email, password } = req.body;
 
-    // Get user with profile
+    // Get user
     const userQuery = `
-      SELECT u.*, p.full_name, p.phone, p.role, p.avatar_url
-      FROM users u
-      LEFT JOIN profiles p ON u.id = p.user_id
-      WHERE u.email = $1 AND u.is_active = true
+      SELECT id, email, password_hash, full_name, phone, role, avatar_url
+      FROM profiles
+      WHERE email = $1
     `;
     
     const result = await db.query(userQuery, [email]);
     
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
     }
 
     const user = result.rows[0];
@@ -103,34 +116,73 @@ router.post('/login', [
     // Check password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
     }
 
     // Update last login
-    await db.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+    await db.query('UPDATE profiles SET last_login = NOW() WHERE id = $1', [user.id]);
 
-    // Generate token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
+    // Create session
+    const sessionUser = {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone,
+      role: user.role,
+      avatar_url: user.avatar_url
+    };
+
+    req.session.user = sessionUser;
 
     res.json({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-        phone: user.phone,
-        role: user.role,
-        avatarUrl: user.avatar_url
-      }
+      success: true,
+      message: 'Login successful',
+      user: sessionUser
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Login failed' 
+    });
   }
+});
+
+// Get current user
+router.get('/me', (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Not authenticated' 
+    });
+  }
+
+  res.json({
+    success: true,
+    user: req.session.user
+  });
+});
+
+// Logout
+router.post('/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Logout error:', err);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Logout failed' 
+      });
+    }
+
+    res.clearCookie(process.env.SESSION_NAME || 'hris_session');
+    res.json({
+      success: true,
+      message: 'Logout successful'
+    });
+  });
 });
 
 module.exports = router;

@@ -1,91 +1,65 @@
-import { supabase, handleSupabaseError } from '../lib/supabase';
-import { Database } from '../types/database';
+import axiosInstance from '../lib/axiosInstance';
 
-type Announcement = Database['public']['Tables']['announcements']['Row'];
-type AnnouncementInsert = Database['public']['Tables']['announcements']['Insert'];
-
-export interface AnnouncementWithAuthor extends Announcement {
-  author?: {
-    full_name: string;
-    avatar_url?: string;
-  };
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  announcement_type: 'general' | 'urgent' | 'event';
+  target_roles?: string[];
+  target_divisions?: string[];
+  published_by: string;
+  is_published: boolean;
+  published_at?: string;
+  expires_at?: string;
+  created_at: string;
+  updated_at: string;
+  author_name?: string;
+  author_avatar?: string;
 }
 
 export class AnnouncementService {
-  static async getAnnouncements(): Promise<AnnouncementWithAuthor[]> {
+  static async getAnnouncements(params?: {
+    type?: string;
+    limit?: number;
+  }): Promise<Announcement[]> {
     try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .select(`
-          *,
-          author:profiles!announcements_published_by_fkey(
-            full_name,
-            avatar_url
-          )
-        `)
-        .eq('is_published', true)
-        .order('published_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching announcements:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.get('/announcements', { params });
+      return response.data.data || [];
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to fetch announcements');
     }
   }
 
-  static async createAnnouncement(
-    announcementData: AnnouncementInsert
-  ): Promise<Announcement> {
+  static async createAnnouncement(announcementData: {
+    title: string;
+    content: string;
+    announcementType: string;
+    targetRoles: string[];
+    expiresAt?: string;
+    isPublished?: boolean;
+  }): Promise<Announcement> {
     try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .insert({
-          ...announcementData,
-          published_at: announcementData.is_published ? new Date().toISOString() : null
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error creating announcement:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.post('/announcements', announcementData);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to create announcement');
     }
   }
 
-  static async updateAnnouncement(
-    id: string,
-    updates: Partial<Announcement>
-  ): Promise<Announcement> {
+  static async updateAnnouncement(id: string, updates: Partial<Announcement>): Promise<Announcement> {
     try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error updating announcement:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.put(`/announcements/${id}`, updates);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to update announcement');
     }
   }
 
   static async deleteAnnouncement(id: string): Promise<void> {
     try {
-      const { error } = await supabase
-        .from('announcements')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error deleting announcement:', error);
-      throw new Error(handleSupabaseError(error));
+      await axiosInstance.delete(`/announcements/${id}`);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to delete announcement');
     }
   }
 }

@@ -1,12 +1,13 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
+const { requireLogin } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
 // Get attendance records
-router.get('/', async (req, res) => {
+router.get('/', requireLogin, async (req, res) => {
   try {
     const { employeeId, startDate, endDate, limit = 30 } = req.query;
     
@@ -14,7 +15,7 @@ router.get('/', async (req, res) => {
       SELECT a.*, e.employee_id, p.full_name
       FROM attendance_records a
       LEFT JOIN employees e ON a.employee_id = e.id
-      LEFT JOIN profiles p ON e.profile_id = p.user_id
+      LEFT JOIN profiles p ON e.profile_id = p.id
       WHERE 1=1
     `;
     
@@ -22,8 +23,8 @@ router.get('/', async (req, res) => {
     let paramCount = 0;
 
     // If not admin/manager, only show own records
-    if (req.user.role === 'employee') {
-      const empResult = await db.query('SELECT id FROM employees WHERE profile_id = $1', [req.user.id]);
+    if (req.session.user.role === 'employee') {
+      const empResult = await db.query('SELECT id FROM employees WHERE profile_id = $1', [req.session.user.id]);
       if (empResult.rows.length > 0) {
         paramCount++;
         query += ` AND a.employee_id = $${paramCount}`;
@@ -51,15 +52,22 @@ router.get('/', async (req, res) => {
     params.push(limit);
 
     const result = await db.query(query, params);
-    res.json(result.rows);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
   } catch (error) {
     console.error('Error fetching attendance:', error);
-    res.status(500).json({ error: 'Failed to fetch attendance records' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch attendance records' 
+    });
   }
 });
 
 // Get today's attendance
-router.get('/today/:employeeId', async (req, res) => {
+router.get('/today/:employeeId', requireLogin, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     
@@ -69,22 +77,33 @@ router.get('/today/:employeeId', async (req, res) => {
     `;
     
     const result = await db.query(query, [req.params.employeeId, today]);
-    res.json(result.rows[0] || null);
+    
+    res.json({
+      success: true,
+      data: result.rows[0] || null
+    });
   } catch (error) {
     console.error('Error fetching today attendance:', error);
-    res.status(500).json({ error: 'Failed to fetch today attendance' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch today attendance' 
+    });
   }
 });
 
 // Clock in
-router.post('/clock-in', [
+router.post('/clock-in', requireLogin, [
   body('employeeId').isUUID(),
   body('location').optional().trim()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const { employeeId, location, photoUrl } = req.body;
@@ -93,12 +112,15 @@ router.post('/clock-in', [
 
     // Check if already clocked in today
     const existing = await db.query(
-      'SELECT id FROM attendance_records WHERE employee_id = $1 AND date = $2',
+      'SELECT id, clock_in FROM attendance_records WHERE employee_id = $1 AND date = $2',
       [employeeId, today]
     );
 
     if (existing.rows.length > 0 && existing.rows[0].clock_in) {
-      return res.status(400).json({ error: 'Already clocked in today' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Already clocked in today' 
+      });
     }
 
     const id = uuidv4();
@@ -121,22 +143,33 @@ router.post('/clock-in', [
       id, employeeId, today, now, location, photoUrl, 'present'
     ]);
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      message: 'Clock in successful',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error clocking in:', error);
-    res.status(500).json({ error: 'Failed to clock in' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to clock in' 
+    });
   }
 });
 
 // Clock out
-router.post('/clock-out', [
+router.post('/clock-out', requireLogin, [
   body('employeeId').isUUID(),
   body('location').optional().trim()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const { employeeId, location, photoUrl } = req.body;
@@ -150,11 +183,17 @@ router.post('/clock-out', [
     );
 
     if (existing.rows.length === 0 || !existing.rows[0].clock_in) {
-      return res.status(400).json({ error: 'No clock-in record found for today' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No clock-in record found for today' 
+      });
     }
 
     if (existing.rows[0].clock_out) {
-      return res.status(400).json({ error: 'Already clocked out today' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Already clocked out today' 
+      });
     }
 
     const query = `
@@ -171,15 +210,22 @@ router.post('/clock-out', [
       now, location, photoUrl, employeeId, today
     ]);
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      message: 'Clock out successful',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error clocking out:', error);
-    res.status(500).json({ error: 'Failed to clock out' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to clock out' 
+    });
   }
 });
 
 // Get attendance statistics
-router.get('/stats/:employeeId', async (req, res) => {
+router.get('/stats/:employeeId', requireLogin, async (req, res) => {
   try {
     const { employeeId } = req.params;
     const { month, year } = req.query;
@@ -208,10 +254,17 @@ router.get('/stats/:employeeId', async (req, res) => {
     `;
 
     const result = await db.query(query, [employeeId, startDate, endDate]);
-    res.json(result.rows[0]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error fetching attendance stats:', error);
-    res.status(500).json({ error: 'Failed to fetch attendance statistics' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch attendance statistics' 
+    });
   }
 });
 

@@ -1,20 +1,20 @@
 {
-  "name": "hris-web-app",
+  "name": "hris-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "vite",
-    "dev:backend": "cd backend && npm run dev",
-    "build": "vite build",
+    "dev": "vite",
+    "build": "tsc && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "setup": "npm install && cd backend && npm install",
-    "start": "npm run dev"
+    "start:backend": "cd backend && npm run dev",
+    "start:frontend": "npm run dev",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.6.2",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

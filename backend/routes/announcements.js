@@ -1,20 +1,20 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
-const { requireRole } = require('../middleware/auth');
+const { requireLogin, requireRole } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
 // Get announcements
-router.get('/', async (req, res) => {
+router.get('/', requireLogin, async (req, res) => {
   try {
     const { type, limit = 50 } = req.query;
     
     let query = `
       SELECT a.*, p.full_name as author_name, p.avatar_url as author_avatar
       FROM announcements a
-      LEFT JOIN profiles p ON a.published_by = p.user_id
+      LEFT JOIN profiles p ON a.published_by = p.id
       WHERE a.is_published = true
     `;
     
@@ -22,10 +22,10 @@ router.get('/', async (req, res) => {
     let paramCount = 0;
 
     // Filter by user role
-    if (req.user.role) {
+    if (req.session.user.role) {
       paramCount++;
       query += ` AND ($${paramCount} = ANY(a.target_roles) OR a.target_roles IS NULL)`;
-      params.push(req.user.role);
+      params.push(req.session.user.role);
     }
 
     if (type) {
@@ -41,10 +41,17 @@ router.get('/', async (req, res) => {
     params.push(limit);
 
     const result = await db.query(query, params);
-    res.json(result.rows);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
   } catch (error) {
     console.error('Error fetching announcements:', error);
-    res.status(500).json({ error: 'Failed to fetch announcements' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch announcements' 
+    });
   }
 });
 
@@ -58,7 +65,11 @@ router.post('/', requireRole(['admin', 'manager']), [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
     }
 
     const {
@@ -82,14 +93,21 @@ router.post('/', requireRole(['admin', 'manager']), [
 
     const result = await db.query(query, [
       id, title, content, announcementType, targetRoles,
-      expiresAt, isPublished, req.user.id, 
+      expiresAt, isPublished, req.session.user.id, 
       isPublished ? new Date().toISOString() : null
     ]);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      success: true,
+      message: 'Announcement created successfully',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error creating announcement:', error);
-    res.status(500).json({ error: 'Failed to create announcement' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create announcement' 
+    });
   }
 });
 
@@ -124,13 +142,23 @@ router.put('/:id', requireRole(['admin', 'manager']), async (req, res) => {
     ]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Announcement not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Announcement not found' 
+      });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      message: 'Announcement updated successfully',
+      data: result.rows[0]
+    });
   } catch (error) {
     console.error('Error updating announcement:', error);
-    res.status(500).json({ error: 'Failed to update announcement' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update announcement' 
+    });
   }
 });
 
@@ -140,13 +168,22 @@ router.delete('/:id', requireRole(['admin']), async (req, res) => {
     const result = await db.query('DELETE FROM announcements WHERE id = $1 RETURNING id', [req.params.id]);
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Announcement not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Announcement not found' 
+      });
     }
 
-    res.json({ message: 'Announcement deleted successfully' });
+    res.json({
+      success: true,
+      message: 'Announcement deleted successfully'
+    });
   } catch (error) {
     console.error('Error deleting announcement:', error);
-    res.status(500).json({ error: 'Failed to delete announcement' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete announcement' 
+    });
   }
 });
 

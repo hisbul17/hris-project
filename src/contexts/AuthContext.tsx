@@ -1,13 +1,13 @@
 import React, { createContext, useContext, ReactNode, useState, useEffect } from 'react';
-import { apiClient } from '../lib/api';
+import axiosInstance from '../lib/axiosInstance';
 
 interface User {
   id: string;
   email: string;
-  fullName: string;
+  full_name: string;
   phone?: string;
   role: 'admin' | 'manager' | 'employee';
-  avatarUrl?: string;
+  avatar_url?: string;
 }
 
 interface AuthContextType {
@@ -16,7 +16,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, phone?: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
-  updateProfile: (updates: any) => Promise<any>;
+  checkAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,46 +25,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check if user is already logged in
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      apiClient.setToken(token);
-      // You might want to validate the token here by making a request to get user profile
-      setLoading(false);
-    } else {
+  const checkAuth = async () => {
+    try {
+      const response = await axiosInstance.get('/auth/me');
+      if (response.data.success && response.data.user) {
+        setUser(response.data.user);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.log('Not authenticated');
+      setUser(null);
+    } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    checkAuth();
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string, phone?: string) => {
-    const response = await apiClient.register(email, password, fullName, phone);
-    if (response.user) {
-      setUser(response.user);
+    try {
+      const response = await axiosInstance.post('/auth/register', {
+        email,
+        password,
+        fullName,
+        phone
+      });
+
+      if (response.data.success) {
+        setUser(response.data.user);
+        return response.data;
+      } else {
+        throw new Error(response.data.message || 'Registration failed');
+      }
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Registration failed';
+      throw new Error(message);
     }
-    return response;
   };
 
   const signIn = async (email: string, password: string) => {
-    const response = await apiClient.login(email, password);
-    if (response.user) {
-      setUser(response.user);
+    try {
+      const response = await axiosInstance.post('/auth/login', {
+        email,
+        password
+      });
+
+      if (response.data.success) {
+        setUser(response.data.user);
+        return response.data;
+      } else {
+        throw new Error(response.data.message || 'Login failed');
+      }
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Login failed';
+      throw new Error(message);
     }
-    return response;
   };
 
   const signOut = async () => {
-    apiClient.clearToken();
-    setUser(null);
-  };
-
-  const updateProfile = async (updates: any) => {
-    // This would need to be implemented in the backend
-    // For now, just update local state
-    if (user) {
-      setUser({ ...user, ...updates });
+    try {
+      await axiosInstance.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
     }
-    return updates;
   };
 
   return (
@@ -74,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signUp,
       signIn,
       signOut,
-      updateProfile,
+      checkAuth,
     }}>
       {children}
     </AuthContext.Provider>

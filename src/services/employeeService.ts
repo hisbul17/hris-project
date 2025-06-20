@@ -1,109 +1,101 @@
-import { supabase, handleSupabaseError } from '../lib/supabase';
-import { Database } from '../types/database';
+import axiosInstance from '../lib/axiosInstance';
 
-type Employee = Database['public']['Tables']['employees']['Row'];
-type EmployeeInsert = Database['public']['Tables']['employees']['Insert'];
-type Profile = Database['public']['Tables']['profiles']['Row'];
+export interface Employee {
+  id: string;
+  employee_id: string;
+  profile_id: string;
+  position: string;
+  division_id?: string;
+  join_date: string;
+  employment_status: 'active' | 'inactive' | 'terminated';
+  salary_base?: number;
+  address?: string;
+  emergency_contact?: string;
+  emergency_phone?: string;
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  avatar_url?: string;
+  division_name?: string;
+  created_at: string;
+  updated_at: string;
+}
 
-export interface EmployeeWithProfile extends Employee {
-  profile?: Profile;
-  division?: {
-    id: string;
-    name: string;
-  };
+export interface Division {
+  id: string;
+  name: string;
+  description?: string;
+  manager_id?: string;
+  manager_name?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export class EmployeeService {
-  static async getEmployees(): Promise<EmployeeWithProfile[]> {
+  static async getEmployees(params?: {
+    division?: string;
+    status?: string;
+    search?: string;
+  }): Promise<Employee[]> {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select(`
-          *,
-          profile:profiles!employees_profile_id_fkey(*),
-          division:divisions!employees_division_id_fkey(id, name)
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.get('/employees', { params });
+      return response.data.data || [];
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to fetch employees');
     }
   }
 
-  static async getEmployeeByProfileId(profileId: string): Promise<EmployeeWithProfile | null> {
+  static async getEmployeeById(id: string): Promise<Employee> {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select(`
-          *,
-          profile:profiles!employees_profile_id_fkey(*),
-          division:divisions!employees_division_id_fkey(id, name)
-        `)
-        .eq('profile_id', profileId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Error fetching employee by profile ID:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.get(`/employees/${id}`);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to fetch employee');
     }
   }
 
-  static async createEmployee(employeeData: EmployeeInsert): Promise<Employee> {
+  static async getEmployeeProfile(): Promise<Employee> {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .insert(employeeData)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error creating employee:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.get('/employees/profile/me');
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to fetch employee profile');
     }
   }
 
-  static async updateEmployee(
-    id: string,
-    updates: Partial<Employee>
-  ): Promise<Employee> {
+  static async createEmployee(employeeData: Partial<Employee>): Promise<Employee> {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error updating employee:', error);
-      throw new Error(handleSupabaseError(error));
+      const response = await axiosInstance.post('/employees', employeeData);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to create employee');
     }
   }
 
-  static async getDivisions() {
+  static async updateEmployee(id: string, updates: Partial<Employee>): Promise<Employee> {
     try {
-      const { data, error } = await supabase
-        .from('divisions')
-        .select('*')
-        .order('name');
+      const response = await axiosInstance.put(`/employees/${id}`, updates);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to update employee');
+    }
+  }
 
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching divisions:', error);
-      throw new Error(handleSupabaseError(error));
+  static async getDivisions(): Promise<Division[]> {
+    try {
+      const response = await axiosInstance.get('/divisions');
+      return response.data.data || [];
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to fetch divisions');
+    }
+  }
+
+  static async createDivision(divisionData: Partial<Division>): Promise<Division> {
+    try {
+      const response = await axiosInstance.post('/divisions', divisionData);
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to create division');
     }
   }
 }
